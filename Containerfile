@@ -2,7 +2,7 @@
 # Based on Universal Blue (ublue-os)
 # Builds a complete AI-powered desktop OS
 
-FROM ghcr.io/ublue-os/silverblue-main:40
+FROM quay.io/fedora/fedora-bootc:40
 
 # ── Khazar user ────────────────────────────
 RUN groupadd -r khazar 2>/dev/null || true && \
