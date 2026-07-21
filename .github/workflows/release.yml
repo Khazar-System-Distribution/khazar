@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: quay.io/fedora/fedora:40
-      options: --privileged --device /dev/loop-control
+      options: --privileged --device /dev/loop-control --device /dev/mapper/control
 
     steps:
       - uses: actions/checkout@v4
@@ -23,9 +23,8 @@ jobs:
       - name: Install build dependencies
         run: |
           dnf install -y --setopt=install_weak_deps=False \
-            lorax livecd-tools spin-kickstarts \
-            gcc make git anaconda \
-            pykickstart
+            livecd-tools lorax anaconda pykickstart \
+            gcc make git
 
       - name: Build Khazar binaries
         run: |
@@ -33,46 +32,42 @@ jobs:
           make -C sdk test
           make all
 
-      - name: Prepare Khazar overlay
+      - name: Prepare overlay files
         run: |
-          mkdir -p /tmp/khazar-overlay/bin /tmp/khazar-overlay/config /tmp/khazar-overlay/systemd
+          mkdir -p /tmp/khazar-bin /tmp/khazar-config /tmp/khazar-systemd
           for comp in orchestrator rule-engine policy-engine model-runtime intent-classifier; do
-            [ -f "components/$comp/ai-$comp" ] && cp "components/$comp/ai-$comp" /tmp/khazar-overlay/bin/
+            [ -f "components/$comp/ai-$comp" ] && cp "components/$comp/ai-$comp" /tmp/khazar-bin/
           done
           for agent in desktop package network power audio; do
-            [ -f "agents/${agent}-agent/ai-${agent}-agent" ] && cp "agents/${agent}-agent/ai-${agent}-agent" /tmp/khazar-overlay/bin/
+            [ -f "agents/${agent}-agent/ai-${agent}-agent" ] && cp "agents/${agent}-agent/ai-${agent}-agent" /tmp/khazar-bin/
           done
-          [ -f distro/cli/kha ] && cp distro/cli/kha /tmp/khazar-overlay/bin/
-          cp distro/configs/*.toml /tmp/khazar-overlay/config/ 2>/dev/null || true
-          cp distro/systemd/*.service distro/systemd/khazar.target /tmp/khazar-overlay/systemd/ 2>/dev/null || true
-          ls /tmp/khazar-overlay/bin/
+          [ -f distro/cli/kha ] && cp distro/cli/kha /tmp/khazar-bin/
+          cp distro/configs/*.toml /tmp/khazar-config/ 2>/dev/null || true
+          cp distro/systemd/*.service distro/systemd/khazar.target /tmp/khazar-systemd/ 2>/dev/null || true
+          echo "Binaries:"
+          ls /tmp/khazar-bin/ 2>/dev/null || echo "(none)"
 
-      - name: Build ISO with livecd-creator
+      - name: Build Live ISO
         run: |
-          # Copy Khazar files to where kickstart %post can find them
-          mkdir -p /tmp/khazar-bin /tmp/khazar-config /tmp/khazar-systemd
-          cp /tmp/khazar-overlay/bin/* /tmp/khazar-bin/ 2>/dev/null || true
-          cp /tmp/khazar-overlay/config/* /tmp/khazar-config/ 2>/dev/null || true
-          cp /tmp/khazar-overlay/systemd/* /tmp/khazar-systemd/ 2>/dev/null || true
-
-          # Build the live ISO
           livecd-creator \
             --config=os-build/khazaros.ks \
             --fslabel=KhazarOS \
             --title="KhazarOS 0.1.0" \
-            --product="KhazarOS" \
+            --product=KhazarOS \
             --releasever=40 \
-            --tmpdir=/tmp/livecd \
-            --cache=/tmp/livecd-cache
+            --tmpdir=/tmp/livecd-tmp \
+            --cache=/tmp/livecd-cache \
+            --verbose 2>&1 | tail -40
 
-      - name: Find and verify ISO
+      - name: Find and package ISO
         run: |
-          ISO=$(find /tmp -name "*.iso" -type f 2>/dev/null | head -1)
+          ISO=$(find / -name "*.iso" -type f 2>/dev/null | grep -v proc | head -1)
           if [ -z "$ISO" ]; then
-            echo "ISO not found in /tmp, checking other locations..."
-            ISO=$(find / -name "*.iso" -type f 2>/dev/null | grep -v proc | head -1)
+            ISO=$(find /tmp -name "*.iso" -type f 2>/dev/null | head -1)
           fi
           if [ -z "$ISO" ]; then
+            echo "Contents of /tmp:"
+            find /tmp -maxdepth 2 -type f 2>/dev/null | head -30
             echo "ERROR: No ISO produced"
             exit 1
           fi
@@ -90,7 +85,7 @@ jobs:
           body: |
             ## KhazarOS ${{ github.ref_name }}
 
-            Bootable Fedora 40-based Live ISO with Khazar AI pre-installed.
+            Bootable Fedora 40 Live ISO with Khazar AI pre-installed.
 
             ### Download
             - `khazaros-live-x86_64.iso` — Bootable Live ISO (~2 GB)
@@ -102,12 +97,9 @@ jobs:
 
             # QEMU
             qemu-system-x86_64 -m 4096 -enable-kvm -cdrom khazaros-live-x86_64.iso
-
-            # VirtualBox
-            Create VM -> attach ISO -> boot
             ```
 
-            ### After Boot
+            ### After boot
             ```bash
             kha "open firefox"
             kha status

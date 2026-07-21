@@ -1,4 +1,4 @@
-# KhazarOS — Fedora 40 Silverblue-based Live ISO
+# KhazarOS — Fedora 40 Live ISO
 # Built with: livecd-creator -c khazaros.ks
 
 lang en_US.UTF-8
@@ -7,10 +7,13 @@ timezone UTC
 selinux --enforcing
 firewall --enabled
 bootloader --timeout=5
+services --enabled=NetworkManager,sshd
 
-%include /usr/share/spin-kickstarts/fedora-live-base.ks
-
+# Partitioning
 part / --size 8192 --fstype ext4
+
+repo --name=fedora --baseurl=https://mirrors.kernel.org/fedora/releases/40/Everything/x86_64/os/
+repo --name=fedora-updates --baseurl=https://mirrors.kernel.org/fedora/updates/40/Everything/x86_64/
 
 %packages
 @core
@@ -19,40 +22,19 @@ part / --size 8192 --fstype ext4
 @gnome-desktop
 @networkmanager-submodules
 @multimedia
-@printing
 
-# Remove Fedora branding, add ours
--fedora-release
 -fedora-release-identity
 -fedora-logos
 -fedora-workstation-backgrounds
--generic-release
--generic-logos
 
-# Khazar branding (we provide these as RPMs or files)
-# khazar-release
-# khazar-logos
-# khazar-backgrounds
-
-# Development tools
 gcc
 make
 git
-
-# Audio
 pulseaudio-utils
-
-# Network tools
 NetworkManager-wifi
-
-# Fonts
 dejavu-sans-fonts
 jetbrains-mono-fonts
-
-# Icons
 papirus-icon-theme
-
-# Utilities
 socat
 python3
 zenity
@@ -61,7 +43,6 @@ zenity
 
 %post --erroronfail
 #!/bin/bash
-set -e
 
 # ── Khazar user ────────────────────
 groupadd -r khazar 2>/dev/null || true
@@ -70,7 +51,7 @@ mkdir -p /var/lib/khazar/{bin,models} /run/khazar /etc/khazar/policies
 chown -R khazar:khazar /var/lib/khazar /run/khazar /etc/khazar
 
 # ── OS Identity ─────────────────────
-cat > /etc/os-release << 'EOF'
+cat > /etc/os-release << 'KHIDENTITY'
 NAME="KhazarOS"
 VERSION="0.1.0 (Xezer)"
 ID="khazaros"
@@ -79,18 +60,15 @@ VERSION_ID="0.1.0"
 PRETTY_NAME="KhazarOS 0.1.0"
 ANSI_COLOR="0;31"
 HOME_URL="https://github.com/Khazar-System-Distribution/khazar-distro"
-EOF
+KHIDENTITY
 
 echo "KhazarOS 0.1.0" > /etc/issue
-ln -sf khazar-release /etc/system-release 2>/dev/null || true
 
 # ── Install Khazar binaries ─────────
-# These are copied from the build directory by the CI
-if [ -d /tmp/khazar-bin ]; then
+if [ -d /tmp/khazar-bin ] && [ "$(ls -A /tmp/khazar-bin 2>/dev/null)" ]; then
     cp /tmp/khazar-bin/* /usr/local/bin/ 2>/dev/null || true
     chmod +x /usr/local/bin/ai-* 2>/dev/null || true
-    cp /tmp/khazar-bin/kha /usr/bin/ 2>/dev/null || true
-    chmod +x /usr/bin/kha 2>/dev/null || true
+    [ -f /tmp/khazar-bin/kha ] && cp /tmp/khazar-bin/kha /usr/bin/ && chmod +x /usr/bin/kha
 fi
 
 # ── Configs ─────────────────────────
@@ -102,17 +80,19 @@ fi
 if [ -d /tmp/khazar-systemd ]; then
     cp /tmp/khazar-systemd/*.service /etc/systemd/system/ 2>/dev/null || true
     cp /tmp/khazar-systemd/khazar.target /etc/systemd/system/ 2>/dev/null || true
+    systemctl enable khazar.target 2>/dev/null || true
 fi
 
-systemctl enable khazar.target 2>/dev/null || true
-
 # ── GNOME defaults ──────────────────
-cat > /usr/share/glib-2.0/schemas/00-khazar-defaults.gschema.override << 'GSETTINGS'
+cat > /usr/share/glib-2.0/schemas/00-khazar.gschema.override << 'KHGSETTINGS'
 [org.gnome.desktop.interface]
 gtk-theme='Adwaita-dark'
 color-scheme='prefer-dark'
 font-name='DejaVu Sans 10'
-GSETTINGS
+
+[org.gnome.shell]
+favorite-apps=['org.mozilla.firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Console.desktop', 'org.gnome.Software.desktop', 'org.gnome.Settings.desktop']
+KHGSETTINGS
 glib-compile-schemas /usr/share/glib-2.0/schemas/ 2>/dev/null || true
 
 # ── Cleanup ─────────────────────────
