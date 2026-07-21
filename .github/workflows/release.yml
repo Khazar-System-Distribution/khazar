@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   build-distro:
@@ -18,16 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache 2>/dev/null || true
-          df -h /
-
       - name: Build Khazar platform
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq gcc make
-          make sdk 2>&1 | tail -3
-          make -C sdk test 2>&1 | tail -5
+          make sdk
+          make -C sdk test
           make all
 
       - name: Copy binaries to system overlay
@@ -40,64 +34,53 @@ jobs:
             [ -f "agents/${agent}-agent/ai-${agent}-agent" ] && cp "agents/${agent}-agent/ai-${agent}-agent" system/usr/local/bin/
           done
           [ -f sdk/libai-sdk.a ] && cp sdk/libai-sdk.a system/usr/lib/
-          [ -f distro/cli/kha ] && cp distro/cli/kha system/usr/local/bin/
-          chmod +x system/usr/local/bin/* 2>/dev/null || true
-          echo "Binaries staged:"
-          ls system/usr/local/bin/
-
-      - name: Install podman
-        run: |
-          sudo apt-get install -y podman
 
       - name: Build container image
         run: |
-          podman build --tag khazaros:latest -f Containerfile .
+          docker build --tag khazaros:latest -f Containerfile .
 
-      - name: Install bootc-image-builder
-        run: pip install --user bootc-image-builder
-
-      - name: Build ISO
+      - name: Save container as tar
         run: |
-          sudo env "PATH=$PATH:$HOME/.local/bin" \
-            bootc-image-builder \
-            --type anaconda-iso \
-            --rootfs xfs \
-            localhost/khazaros:latest \
-            khazaros-latest-x86_64.iso
-
-      - name: Verify ISO
-        run: |
-          ls -lah khazaros-latest-x86_64.iso
-          sha256sum khazaros-latest-x86_64.iso > khazaros-latest-x86_64.iso.sha256
+          docker save khazaros:latest | gzip > khazaros-latest-x86_64.tar.gz
+          ls -lah khazaros-latest-x86_64.tar.gz
+          sha256sum khazaros-latest-x86_64.tar.gz > khazaros-latest-x86_64.tar.gz.sha256
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           name: KhazarOS ${{ github.ref_name }}
           files: |
-            khazaros-latest-x86_64.iso
-            khazaros-latest-x86_64.iso.sha256
+            khazaros-latest-x86_64.tar.gz
+            khazaros-latest-x86_64.tar.gz.sha256
           body: |
             ## KhazarOS ${{ github.ref_name }}
 
-            Fedora Silverblue-based distro with built-in AI platform.
+            Fedora Silverblue-based distro with built-in Khazar AI platform.
 
             ### Download
-            - `khazaros-latest-x86_64.iso` — Bootable installer ISO (3+ GB)
+            - `khazaros-latest-x86_64.tar.gz` — Full container image (3+ GB)
 
-            ### Install
+            ### Convert to bootable disk image
             ```bash
-            # USB
-            sudo dd if=khazaros-latest-x86_64.iso of=/dev/sdX bs=4M status=progress
+            # Load the container
+            docker load -i khazaros-latest-x86_64.tar.gz
 
-            # QEMU
-            qemu-system-x86_64 -m 4096 -enable-kvm -hda khazaros-latest-x86_64.iso
+            # Convert to ISO (requires bootc-image-builder)
+            pip install bootc-image-builder
+            sudo bootc-image-builder --type anaconda-iso \
+              docker-daemon:khazaros:latest \
+              khazaros.iso
+
+            # Write to USB
+            sudo dd if=khazaros.iso of=/dev/sdX bs=4M status=progress
             ```
 
-            ### After Boot
+            ### Or build from source on Fedora 40+
             ```bash
-            kha "open firefox"
-            kha status
+            git clone https://github.com/Khazar-System-Distribution/khazar-distro
+            cd khazar-distro && bash build-iso.sh
             ```
+
+            See [README.md](README.md) and [TESTING.md](TESTING.md).
           draft: false
           prerelease: true

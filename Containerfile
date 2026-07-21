@@ -1,73 +1,65 @@
-# KhazarOS — Fedora Silverblue fork
-# Based on Universal Blue (ublue-os)
-# Builds a complete AI-powered desktop OS
+# KhazarOS — Fedora Silverblue Distro Image
+# Base: Fedora 40 Silverblue (official)
+# Layer: Khazar AI platform + branding
+#
+# Build:  docker build -t khazaros -f Containerfile .
+# ISO:    bootc-image-builder --type anaconda-iso docker-daemon:khazaros:latest khazaros.iso
+#
+# Based on: quay.io/fedora/fedora-bootc:40
 
 FROM quay.io/fedora/fedora-bootc:40
 
 # ── Khazar user ────────────────────────────
-RUN groupadd -r khazar 2>/dev/null || true && \
-    useradd -r -s /sbin/nologin -d /var/lib/khazar -g khazar khazar 2>/dev/null || true
-RUN mkdir -p /var/lib/khazar/{bin,models} /run/khazar /etc/khazar/policies && \
-    chown -R khazar:khazar /var/lib/khazar /run/khazar /etc/khazar
+RUN groupadd -r khazar 2>/dev/null; \
+    useradd -r -s /sbin/nologin -d /var/lib/khazar -g khazar khazar 2>/dev/null; \
+    mkdir -p /var/lib/khazar/{bin,models} /run/khazar /etc/khazar/policies; \
+    chown -R khazar:khazar /var/lib/khazar /run/khazar /etc/khazar; \
+    true
 
-# ── Dependencies ───────────────────────────
-RUN rpm-ostree install --apply-live \
-    papirus-icon-theme \
-    jetbrains-mono-fonts \
-    dejavu-sans-fonts \
-    gnome-tweaks \
-    NetworkManager-wifi \
-    pulseaudio-utils
-
-# ── Khazar AI Platform (pre-compiled) ─────
+# ── Khazar AI Platform (pre-compiled binaries) ──
 COPY system/usr/local/bin/ /usr/local/bin/
-COPY system/usr/lib/ /usr/lib/
+RUN chmod +x /usr/local/bin/* 2>/dev/null; true
+
+# ── Configs ───────────────────────────────
 COPY system/etc/khazar/ /etc/khazar/
-COPY system/etc/systemd/system/ /etc/systemd/system/
-RUN chmod +x /usr/local/bin/* 2>/dev/null || true
+RUN chown -R khazar:khazar /etc/khazar
 
 # ── CLI ───────────────────────────────────
-COPY system/usr/local/bin/kha /usr/bin/kha
-RUN chmod +x /usr/bin/kha
+RUN [ -f /usr/local/bin/kha ] && cp /usr/local/bin/kha /usr/bin/kha && chmod +x /usr/bin/kha; true
 
-# ── systemd daemons ───────────────────────
-RUN systemctl enable khazar.target && \
-    systemctl enable khazar-identity.service && \
-    systemctl enable ai-rule-engine.service && \
-    systemctl enable ai-policy-engine.service && \
-    systemctl enable ai-orchestrator.service && \
-    systemctl enable ai-desktop-agent.service && \
-    systemctl enable ai-package-agent.service && \
-    systemctl enable ai-network-agent.service && \
-    systemctl enable ai-power-agent.service && \
-    systemctl enable ai-audio-agent.service
+# ── systemd services ──────────────────────
+COPY system/etc/systemd/system/ /etc/systemd/system/
+RUN systemctl enable khazar.target 2>/dev/null; \
+    systemctl enable ai-rule-engine.service 2>/dev/null; \
+    systemctl enable ai-policy-engine.service 2>/dev/null; \
+    systemctl enable ai-orchestrator.service 2>/dev/null; \
+    systemctl enable ai-desktop-agent.service 2>/dev/null; \
+    systemctl enable ai-package-agent.service 2>/dev/null; \
+    systemctl enable ai-network-agent.service 2>/dev/null; \
+    systemctl enable ai-power-agent.service 2>/dev/null; \
+    systemctl enable ai-audio-agent.service 2>/dev/null; \
+    true
 
 # ── OS Identity ────────────────────────────
-COPY system/etc/os-release /usr/lib/os-release
-COPY system/etc/issue /etc/issue
-COPY system/usr/share/khazar /usr/share/khazar
+COPY system/etc/os-release /usr/lib/os-release 2>/dev/null; true
+COPY system/etc/issue /etc/issue 2>/dev/null; true
+
+# ── Branding ────────────────────────────────
+COPY system/usr/share/ /usr/share/ 2>/dev/null; true
 
 # ── GNOME Theme ────────────────────────────
-COPY system/usr/share/themes /usr/share/themes
-COPY system/usr/share/gnome-shell/extensions /usr/share/gnome-shell/extensions
-COPY system/usr/share/glib-2.0/schemas/00-khazar-defaults.gschema.override \
-     /usr/share/glib-2.0/schemas/
-RUN glib-compile-schemas /usr/share/glib-2.0/schemas/
+COPY system/usr/share/themes/ /usr/share/themes/ 2>/dev/null; true
+COPY system/usr/share/glib-2.0/schemas/ /usr/share/glib-2.0/schemas/ 2>/dev/null; true
+RUN glib-compile-schemas /usr/share/glib-2.0/schemas/ 2>/dev/null; true
 
-# ── GRUB + Plymouth ────────────────────────
-COPY system/boot /boot
-COPY system/usr/share/plymouth /usr/share/plymouth
-RUN plymouth-set-default-theme khazar 2>/dev/null || true
+# ── Post-install setup script ──────────────
+RUN echo '#!/bin/bash' > /usr/libexec/khazar-postinstall && \
+    echo 'systemctl enable khazar.target 2>/dev/null' >> /usr/libexec/khazar-postinstall && \
+    echo 'gsettings set org.gnome.desktop.interface gtk-theme "Khazar-dark" 2>/dev/null' >> /usr/libexec/khazar-postinstall && \
+    echo 'gsettings set org.gnome.desktop.interface color-scheme "prefer-dark" 2>/dev/null' >> /usr/libexec/khazar-postinstall && \
+    chmod +x /usr/libexec/khazar-postinstall
 
-# ── Wallpaper ──────────────────────────────
-COPY system/usr/share/backgrounds /usr/share/backgrounds
-COPY system/usr/share/icons /usr/share/icons
-
-# ── Cleanup ────────────────────────────────
-RUN rm -rf /var/cache/* /tmp/*
-RUN rpm-ostree cleanup -m
-
-# ── Metadata ───────────────────────────────
+# ── Metadata ────────────────────────────────
 LABEL distro.name="KhazarOS"
 LABEL distro.version="0.1.0"
 LABEL distro.family="Fedora Silverblue"
